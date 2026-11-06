@@ -5,6 +5,7 @@ checks whether the resulting representations look Gaussian.
 Gaussianity is checked per output coordinate and via random 1-D projections,
 using the Anderson-Darling (AD) and D'Agostino-Pearson (DP) normality tests.
 """
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -12,22 +13,22 @@ import torch.nn.functional as F
 from scipy import stats
 
 # ---------------- Config ----------------
-D_DATA = 1024      # input (Laplace) dimension
-D_EMBED = 256       # output representation dimension
+D_DATA = 1024  # input (Laplace) dimension
+D_EMBED = 256  # output representation dimension
 BATCH_SIZE = 256
-EPOCHS = 100        # real epochs over a fixed training pool
+EPOCHS = 100  # real epochs over a fixed training pool
 N_TRAIN = 20000
 N_TEST = 5000
 
-TEMPERATURE = 0.1   # InfoNCE temperature
-A_CORR = 0.6        # positive-pair correlation (paper Eq. 53)
-NOISE_STD = 0.2     # additive Gaussian noise on each view
-DROPOUT_P = 0.1     # feature dropout probability on each view
-SCALE_STD = 0.1     # std of the log-normal multiplicative scaling
+TEMPERATURE = 0.1  # InfoNCE temperature
+A_CORR = 0.6  # positive-pair correlation (paper Eq. 53)
+NOISE_STD = 0.2  # additive Gaussian noise on each view
+DROPOUT_P = 0.1  # feature dropout probability on each view
+SCALE_STD = 0.1  # std of the log-normal multiplicative scaling
 LR = 1e-3
 
 AD_THRESHOLD = 0.752  # Anderson-Darling: fail to reject normality below this
-DP_ALPHA = 0.05       # D'Agostino-Pearson: fail to reject normality above this p
+DP_ALPHA = 0.05  # D'Agostino-Pearson: fail to reject normality above this p
 N_PROJECTIONS = 100
 N_PROJ_SAMPLES = 250
 SEED = 0
@@ -38,13 +39,17 @@ np.random.seed(SEED)
 
 def sample_laplace(n, dim=D_DATA):
     """Draw n i.i.d. Laplace(0, 1) vectors."""
-    return torch.from_numpy(np.random.laplace(0.0, 1.0, size=(n, dim)).astype(np.float32))
+    return torch.from_numpy(
+        np.random.laplace(0.0, 1.0, size=(n, dim)).astype(np.float32)
+    )
 
 
-def augment_pair(x, A=A_CORR, noise_std=NOISE_STD, dropout_p=DROPOUT_P, scale_std=SCALE_STD):
+def augment_pair(
+    x, A=A_CORR, noise_std=NOISE_STD, dropout_p=DROPOUT_P, scale_std=SCALE_STD
+):
     """Build two correlated 'views' of x: Gaussian mixing at correlation A,
     then independent additive noise, feature dropout, and multiplicative scaling."""
-    mix = float(np.sqrt(1 - A ** 2))
+    mix = float(np.sqrt(1 - A**2))
     x1 = A * x + mix * torch.randn_like(x)
     x2 = A * x + mix * torch.randn_like(x)
     x1 = x1 + noise_std * torch.randn_like(x1)
@@ -87,7 +92,7 @@ def train():
         epoch_loss = 0.0
         n_batches = 0
         for start in range(0, N_TRAIN - BATCH_SIZE + 1, BATCH_SIZE):
-            idx = perm[start:start + BATCH_SIZE]
+            idx = perm[start : start + BATCH_SIZE]
             x1, x2 = augment_pair(x_train[idx])
             loss = info_nce_loss(enc(x1), enc(x2))
             opt.zero_grad()
@@ -96,7 +101,9 @@ def train():
             epoch_loss += loss.item()
             n_batches += 1
         if epoch % 10 == 0 or epoch == 1:
-            print(f"epoch {epoch:3d}/{EPOCHS}  InfoNCE loss = {epoch_loss / n_batches:.4f}")
+            print(
+                f"epoch {epoch:3d}/{EPOCHS}  InfoNCE loss = {epoch_loss / n_batches:.4f}"
+            )
 
     return enc
 
@@ -133,19 +140,35 @@ def evaluate(enc):
     print(f"\n=== Config: d={D_EMBED}, N={BATCH_SIZE}, epochs={EPOCHS} ===")
     print(f"CV (norm coefficient of variation): {cv:.4f}")
     print()
-    print("Per-coordinate diagnostics (n_coords={}, n_samples={}):".format(D_EMBED, N_TEST))
-    print(f"  AD avg statistic = {ad_stats.mean():.4f}   AD pass rate = {ad_pass_frac*100:.1f}%  (<{AD_THRESHOLD})")
-    print(f"  DP avg p-value   = {dp_ps.mean():.4f}   DP pass rate = {dp_pass_frac*100:.1f}%  (>{DP_ALPHA})")
+    print(
+        "Per-coordinate diagnostics (n_coords={}, n_samples={}):".format(
+            D_EMBED, N_TEST
+        )
+    )
+    print(
+        f"  AD avg statistic = {ad_stats.mean():.4f}   AD pass rate = {ad_pass_frac * 100:.1f}%  (<{AD_THRESHOLD})"
+    )
+    print(
+        f"  DP avg p-value   = {dp_ps.mean():.4f}   DP pass rate = {dp_pass_frac * 100:.1f}%  (>{DP_ALPHA})"
+    )
     print()
-    print(f"Random-projection diagnostics (n_projections={N_PROJECTIONS}, n_samples={N_PROJ_SAMPLES}):")
-    print(f"  AD avg statistic = {proj_ad.mean():.4f}   AD pass rate = {proj_ad_pass_frac*100:.1f}%")
-    print(f"  DP avg p-value   = {proj_dp_p.mean():.4f}   DP pass rate = {proj_dp_pass_frac*100:.1f}%")
+    print(
+        f"Random-projection diagnostics (n_projections={N_PROJECTIONS}, n_samples={N_PROJ_SAMPLES}):"
+    )
+    print(
+        f"  AD avg statistic = {proj_ad.mean():.4f}   AD pass rate = {proj_ad_pass_frac * 100:.1f}%"
+    )
+    print(
+        f"  DP avg p-value   = {proj_dp_p.mean():.4f}   DP pass rate = {proj_dp_pass_frac * 100:.1f}%"
+    )
 
 
 def main():
     """Train the encoder and print its Gaussianity diagnostics."""
-    print(f"Training linear InfoNCE encoder: d_data={D_DATA} -> d={D_EMBED}, "
-          f"batch_size={BATCH_SIZE}, epochs={EPOCHS}")
+    print(
+        f"Training linear InfoNCE encoder: d_data={D_DATA} -> d={D_EMBED}, "
+        f"batch_size={BATCH_SIZE}, epochs={EPOCHS}"
+    )
     enc = train()
     evaluate(enc)
 

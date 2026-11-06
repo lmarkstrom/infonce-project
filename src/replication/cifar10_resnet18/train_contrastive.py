@@ -4,6 +4,7 @@ reproducing the contrastive arm of Betser, Gofer, Levi, Gilboa, "InfoNCE
 Induces Gaussian Distribution" (ICLR 2026, arXiv:2602.24012), Appendix E.1
 CIFAR-10 experiments, Table 1's "Contrastive" column.
 """
+
 import csv
 import os
 import time
@@ -11,12 +12,12 @@ import time
 import numpy as np
 import torch
 import torch.nn.functional as F
+from diagnostics import run_diagnostics
+from model import ProjectionHead, ResNet18Cifar
 from torch.utils.data import DataLoader, Subset
 from torchvision.datasets import CIFAR10
 
 from data import ContrastivePairDataset, eval_transform, simclr_augment
-from diagnostics import run_diagnostics
-from model import ProjectionHead, ResNet18Cifar
 
 # ---------------- Config ----------------
 DATA_ROOT = "./data"
@@ -26,12 +27,14 @@ BATCH_SIZE = 256
 TEMPERATURE = 0.1
 LR = 1e-3
 WEIGHT_DECAY = 1e-4
-PROJECTION_DIM = 128  # SimCLR-style projector output; loss is computed here, then discarded
-N_TEST = 2000         # eval pool size; individual tests subsample N_TEST_SAMPLES from this
-N_VAL = 500           # held-out CIFAR test images for per-epoch progress checks
+PROJECTION_DIM = (
+    128  # SimCLR-style projector output; loss is computed here, then discarded
+)
+N_TEST = 2000  # eval pool size; individual tests subsample N_TEST_SAMPLES from this
+N_VAL = 500  # held-out CIFAR test images for per-epoch progress checks
 NUM_WORKERS = 2
 
-N_TEST_SAMPLES = 250   # samples per individual per-coordinate/projection test
+N_TEST_SAMPLES = 250  # samples per individual per-coordinate/projection test
 N_PROJECTIONS = 100
 SEED = 0
 RUN_PER_EPOCH_DIAGNOSTICS = False
@@ -54,7 +57,9 @@ def build_train_loader():
     """Build the augmented CIFAR-10 train loader used for contrastive pairs."""
     base = CIFAR10(root=DATA_ROOT, train=True, download=True)
     if SUBSET_SIZE is not None:
-        idx = np.random.RandomState(SEED).choice(len(base), size=SUBSET_SIZE, replace=False)
+        idx = np.random.RandomState(SEED).choice(
+            len(base), size=SUBSET_SIZE, replace=False
+        )
         base = Subset(base, idx)
     ds = ContrastivePairDataset(base, simclr_augment())
     return DataLoader(
@@ -84,9 +89,13 @@ def build_val_loader():
 
 def build_eval_loader():
     """Build the plain CIFAR-10 evaluation pool for Gaussianity diagnostics."""
-    test_base = CIFAR10(root=DATA_ROOT, train=False, download=True, transform=eval_transform())
+    test_base = CIFAR10(
+        root=DATA_ROOT, train=False, download=True, transform=eval_transform()
+    )
     if N_TEST is not None and N_TEST < len(test_base):
-        idx = np.random.RandomState(SEED + 1).choice(len(test_base), size=N_TEST, replace=False)
+        idx = np.random.RandomState(SEED + 1).choice(
+            len(test_base), size=N_TEST, replace=False
+        )
         test_base = Subset(test_base, idx)
     return DataLoader(test_base, batch_size=256, shuffle=False, num_workers=NUM_WORKERS)
 
@@ -118,7 +127,9 @@ def validate(model, projector, device, val_loader):
         v = F.normalize(projector(model(x2)), dim=1)
         logits = u @ v.t() / TEMPERATURE
         labels = torch.arange(u.size(0), device=device)
-        loss = 0.5 * (F.cross_entropy(logits, labels) + F.cross_entropy(logits.t(), labels))
+        loss = 0.5 * (
+            F.cross_entropy(logits, labels) + F.cross_entropy(logits.t(), labels)
+        )
         total_loss += loss.item() * u.size(0)
         total_correct += (logits.argmax(dim=1) == labels).sum().item()
         total_n += u.size(0)
@@ -135,33 +146,37 @@ def save_epoch_stats(epoch, space, stats, path=PER_EPOCH_DIAGNOSTICS_PATH):
         writer = csv.writer(f)
 
         if not file_exists:
-            writer.writerow([
-                "epoch",
-                "space",
-                "cv",
-                "coord_ad_score",
-                "coord_ad_compliance_pct",
-                "coord_dp_avg_p",
-                "coord_dp_compliance_pct",
-                "proj_ad_score",
-                "proj_ad_compliance_pct",
-                "proj_dp_avg_p",
-                "proj_dp_compliance_pct",
-            ])
+            writer.writerow(
+                [
+                    "epoch",
+                    "space",
+                    "cv",
+                    "coord_ad_score",
+                    "coord_ad_compliance_pct",
+                    "coord_dp_avg_p",
+                    "coord_dp_compliance_pct",
+                    "proj_ad_score",
+                    "proj_ad_compliance_pct",
+                    "proj_dp_avg_p",
+                    "proj_dp_compliance_pct",
+                ]
+            )
 
-        writer.writerow([
-            epoch,
-            space,
-            stats["cv"],
-            stats["ad_score"],
-            stats["ad_compliance_pct"],
-            stats["dp_score"],
-            stats["dp_compliance_pct"],
-            stats["proj_ad_score"],
-            stats["proj_ad_compliance_pct"],
-            stats["proj_dp_score"],
-            stats["proj_dp_compliance_pct"],
-        ])
+        writer.writerow(
+            [
+                epoch,
+                space,
+                stats["cv"],
+                stats["ad_score"],
+                stats["ad_compliance_pct"],
+                stats["dp_score"],
+                stats["dp_compliance_pct"],
+                stats["proj_ad_score"],
+                stats["proj_ad_compliance_pct"],
+                stats["proj_dp_score"],
+                stats["proj_dp_compliance_pct"],
+            ]
+        )
 
 
 @torch.no_grad()
@@ -217,7 +232,9 @@ def train():
         )
 
         if RUN_PER_EPOCH_DIAGNOSTICS:
-            backbone_stats, projector_stats = evaluate(model, projector, device, eval_loader)
+            backbone_stats, projector_stats = evaluate(
+                model, projector, device, eval_loader
+            )
             save_epoch_stats(epoch, "contrastive_backbone", backbone_stats)
             save_epoch_stats(epoch, "projector", projector_stats)
 

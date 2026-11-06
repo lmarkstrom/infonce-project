@@ -1,6 +1,7 @@
 """CIFAR-adapted ResNet-18 (3x3 stem, no maxpool) - the standard variant used
 by SimCLR-style CIFAR-10 experiments, since the ImageNet stem would destroy
 almost all signal in a 32x32 image."""
+
 import torch.nn as nn
 
 
