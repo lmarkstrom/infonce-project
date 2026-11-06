@@ -21,3 +21,6 @@ build-backend = "uv_build"
 
 [tool.uv.build-backend]
 module-name = ["replication", "ai_replication", "extension"]
+
+[tool.ty.environment]
+extra-paths = ["src/replication/cifar10_resnet18"]
