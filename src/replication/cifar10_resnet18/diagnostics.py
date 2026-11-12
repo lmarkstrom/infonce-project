@@ -1,10 +1,11 @@
 """Shared Gaussianity diagnostics: Anderson-Darling and D'Agostino-Pearson
 normality tests, applied per-coordinate and via random 1-D projections."""
+
 import numpy as np
 from scipy import stats
 
 AD_THRESHOLD = 0.752  # Anderson-Darling: fail to reject normality below this
-DP_ALPHA = 0.05        # D'Agostino-Pearson: fail to reject normality above this p
+DP_ALPHA = 0.05  # D'Agostino-Pearson: fail to reject normality above this p
 
 
 def ad_stat(sample):
@@ -58,27 +59,34 @@ def run_diagnostics(z, label, n_test_samples, n_projections, log_fn=print):
     proj_ad, proj_dp_p = np.array(proj_ad), np.array(proj_dp_p)
     n_degenerate_proj = int(np.isnan(proj_ad).sum())
 
-    degenerate_note = (f"   [{n_degenerate_coord} degenerate/zero-variance coords excluded from avg]"
-                        if n_degenerate_coord else "")
+    degenerate_note = (
+        f"   [{n_degenerate_coord} degenerate/zero-variance coords excluded from avg]"
+        if n_degenerate_coord
+        else ""
+    )
     log_fn(f"\n[{label}]  d={d}  CV (norm coefficient of variation) = {cv:.4f}")
-    log_fn(f"  Per-coordinate: AD avg={np.nanmean(ad_stats):.4f} pass={ad_pass_frac * 100:.1f}%   "
-           f"DP avg p={np.nanmean(dp_ps):.4f} pass={dp_pass_frac * 100:.1f}%{degenerate_note}")
-    log_fn(f"  Random-projection: AD avg={np.nanmean(proj_ad):.4f} pass={(proj_ad < AD_THRESHOLD).mean() * 100:.1f}%   "
-           f"DP avg p={np.nanmean(proj_dp_p):.4f} pass={(proj_dp_p > DP_ALPHA).mean() * 100:.1f}%"
-           + (f"   [{n_degenerate_proj} degenerate projections excluded from avg]" if n_degenerate_proj else ""))
-    
+    log_fn(
+        f"  Per-coordinate: AD avg={np.nanmean(ad_stats):.4f} pass={ad_pass_frac * 100:.1f}%   "
+        f"DP avg p={np.nanmean(dp_ps):.4f} pass={dp_pass_frac * 100:.1f}%{degenerate_note}"
+    )
+    log_fn(
+        f"  Random-projection: AD avg={np.nanmean(proj_ad):.4f} pass={(proj_ad < AD_THRESHOLD).mean() * 100:.1f}%   "
+        f"DP avg p={np.nanmean(proj_dp_p):.4f} pass={(proj_dp_p > DP_ALPHA).mean() * 100:.1f}%"
+        + (
+            f"   [{n_degenerate_proj} degenerate projections excluded from avg]"
+            if n_degenerate_proj
+            else ""
+        )
+    )
+
     return {
         "ad_score": float(np.nanmean(ad_stats)),
         "ad_compliance_pct": float(ad_pass_frac * 100),
-    
         "dp_score": float(np.nanmean(dp_ps)),
         "dp_compliance_pct": float(dp_pass_frac * 100),
-    
         "proj_ad_score": float(np.nanmean(proj_ad)),
         "proj_ad_compliance_pct": float((proj_ad < AD_THRESHOLD).mean() * 100),
-    
         "proj_dp_score": float(np.nanmean(proj_dp_p)),
         "proj_dp_compliance_pct": float((proj_dp_p > DP_ALPHA).mean() * 100),
-    
         "cv": float(cv),
     }

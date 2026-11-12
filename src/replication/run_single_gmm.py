@@ -6,6 +6,7 @@ Gaussianity is checked per output coordinate and via random 1-D projections,
 using the Anderson-Darling (AD) and D'Agostino-Pearson (DP) normality tests.
 
 """
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -13,22 +14,22 @@ import torch.nn.functional as F
 from scipy import stats
 
 # ---------------- Config ----------------
-D_DATA = 1024       # input dimension
-D_EMBED = 256       # output representation dimension
+D_DATA = 1024  # input dimension
+D_EMBED = 256  # output representation dimension
 BATCH_SIZE = 256
-EPOCHS = 100        # real epochs over a fixed training pool
+EPOCHS = 100  # real epochs over a fixed training pool
 N_TRAIN = 20000
 N_TEST = 5000
 
 N_COMPONENTS = 25
-COMPONENT_STD = 1.0    # shared isotropic std of each mixture component
-MEAN_SCALE = 0.05      # std of the (fixed, random) component means - see module docstring
+COMPONENT_STD = 1.0  # shared isotropic std of each mixture component
+MEAN_SCALE = 0.05  # std of the (fixed, random) component means - see module docstring
 
-TEMPERATURE = 0.1      # InfoNCE temperature
+TEMPERATURE = 0.1  # InfoNCE temperature
 LR = 1e-3
 
 AD_THRESHOLD = 0.752  # Anderson-Darling: fail to reject normality below this
-DP_ALPHA = 0.05       # D'Agostino-Pearson: fail to reject normality above this p
+DP_ALPHA = 0.05  # D'Agostino-Pearson: fail to reject normality above this p
 N_PROJECTIONS = 100
 N_PROJ_SAMPLES = 250
 SEED = 0
@@ -84,9 +85,11 @@ def train():
         epoch_loss = 0.0
         n_batches = 0
         for start in range(0, N_TRAIN - BATCH_SIZE + 1, BATCH_SIZE):
-            comps = train_components[perm[start:start + BATCH_SIZE]]
+            comps = train_components[perm[start : start + BATCH_SIZE]]
             x1 = sample_from_components(comps)
-            x2 = sample_from_components(comps)  # independent second view, same component
+            x2 = sample_from_components(
+                comps
+            )  # independent second view, same component
             loss = info_nce_loss(enc(x1), enc(x2))
             opt.zero_grad()
             loss.backward()
@@ -94,7 +97,9 @@ def train():
             epoch_loss += loss.item()
             n_batches += 1
         if epoch % 10 == 0 or epoch == 1:
-            print(f"epoch {epoch:3d}/{EPOCHS}  InfoNCE loss = {epoch_loss / n_batches:.4f}")
+            print(
+                f"epoch {epoch:3d}/{EPOCHS}  InfoNCE loss = {epoch_loss / n_batches:.4f}"
+            )
 
     return enc
 
@@ -131,19 +136,35 @@ def evaluate(enc):
     print(f"\n=== Config: GMM input, d={D_EMBED}, N={BATCH_SIZE}, epochs={EPOCHS} ===")
     print(f"CV (norm coefficient of variation): {cv:.4f}")
     print()
-    print("Per-coordinate diagnostics (n_coords={}, n_samples={}):".format(D_EMBED, N_TEST))
-    print(f"  AD avg statistic = {ad_stats.mean():.4f}   AD pass rate = {ad_pass_frac*100:.1f}%  (<{AD_THRESHOLD})")
-    print(f"  DP avg p-value   = {dp_ps.mean():.4f}   DP pass rate = {dp_pass_frac*100:.1f}%  (>{DP_ALPHA})")
+    print(
+        "Per-coordinate diagnostics (n_coords={}, n_samples={}):".format(
+            D_EMBED, N_TEST
+        )
+    )
+    print(
+        f"  AD avg statistic = {ad_stats.mean():.4f}   AD pass rate = {ad_pass_frac * 100:.1f}%  (<{AD_THRESHOLD})"
+    )
+    print(
+        f"  DP avg p-value   = {dp_ps.mean():.4f}   DP pass rate = {dp_pass_frac * 100:.1f}%  (>{DP_ALPHA})"
+    )
     print()
-    print(f"Random-projection diagnostics (n_projections={N_PROJECTIONS}, n_samples={N_PROJ_SAMPLES}):")
-    print(f"  AD avg statistic = {proj_ad.mean():.4f}   AD pass rate = {proj_ad_pass_frac*100:.1f}%")
-    print(f"  DP avg p-value   = {proj_dp_p.mean():.4f}   DP pass rate = {proj_dp_pass_frac*100:.1f}%")
+    print(
+        f"Random-projection diagnostics (n_projections={N_PROJECTIONS}, n_samples={N_PROJ_SAMPLES}):"
+    )
+    print(
+        f"  AD avg statistic = {proj_ad.mean():.4f}   AD pass rate = {proj_ad_pass_frac * 100:.1f}%"
+    )
+    print(
+        f"  DP avg p-value   = {proj_dp_p.mean():.4f}   DP pass rate = {proj_dp_pass_frac * 100:.1f}%"
+    )
 
 
 def main():
     """Train the encoder and print its Gaussianity diagnostics."""
-    print(f"Training linear InfoNCE encoder on {N_COMPONENTS}-component Gaussian mixture: "
-          f"d_data={D_DATA} -> d={D_EMBED}, batch_size={BATCH_SIZE}, epochs={EPOCHS}")
+    print(
+        f"Training linear InfoNCE encoder on {N_COMPONENTS}-component Gaussian mixture: "
+        f"d_data={D_DATA} -> d={D_EMBED}, batch_size={BATCH_SIZE}, epochs={EPOCHS}"
+    )
     enc = train()
     evaluate(enc)
 

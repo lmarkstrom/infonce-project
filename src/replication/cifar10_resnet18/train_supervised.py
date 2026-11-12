@@ -9,6 +9,7 @@ differs - to isolate whether Gaussianity comes from InfoNCE itself.
 Gaussianity diagnostics are run on the same backbone feature space (512-dim,
 pre-classifier) evaluated for the contrastive arm, for a fair comparison.
 """
+
 import csv
 import os
 import time
@@ -17,12 +18,12 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from diagnostics import run_diagnostics
+from model import ResNet18Cifar
 from torch.utils.data import DataLoader, Subset
 from torchvision.datasets import CIFAR10
 
 from data import eval_transform, simclr_augment
-from diagnostics import run_diagnostics
-from model import ResNet18Cifar
 
 # ---------------- Config (matched to train_contrastive.py) ----------------
 DATA_ROOT = "./data"
@@ -31,8 +32,8 @@ EPOCHS = 100
 BATCH_SIZE = 256
 LR = 1e-3
 WEIGHT_DECAY = 1e-4
-N_TEST = 2000          # eval pool size; individual tests subsample N_TEST_SAMPLES from this
-N_TEST_SAMPLES = 250   # samples per individual per-coordinate/projection test
+N_TEST = 2000  # eval pool size; individual tests subsample N_TEST_SAMPLES from this
+N_TEST_SAMPLES = 250  # samples per individual per-coordinate/projection test
 N_PROJECTIONS = 100
 N_VAL = 500
 NUM_WORKERS = 2
@@ -125,33 +126,37 @@ def save_epoch_stats(epoch, space, stats, path=PER_EPOCH_DIAGNOSTICS_PATH):
         writer = csv.writer(f)
 
         if not file_exists:
-            writer.writerow([
-                "epoch",
-                "space",
-                "cv",
-                "coord_ad_score",
-                "coord_ad_compliance_pct",
-                "coord_dp_avg_p",
-                "coord_dp_compliance_pct",
-                "proj_ad_score",
-                "proj_ad_compliance_pct",
-                "proj_dp_avg_p",
-                "proj_dp_compliance_pct",
-            ])
+            writer.writerow(
+                [
+                    "epoch",
+                    "space",
+                    "cv",
+                    "coord_ad_score",
+                    "coord_ad_compliance_pct",
+                    "coord_dp_avg_p",
+                    "coord_dp_compliance_pct",
+                    "proj_ad_score",
+                    "proj_ad_compliance_pct",
+                    "proj_dp_avg_p",
+                    "proj_dp_compliance_pct",
+                ]
+            )
 
-        writer.writerow([
-            epoch,
-            space,
-            stats["cv"],
-            stats["ad_score"],
-            stats["ad_compliance_pct"],
-            stats["dp_score"],
-            stats["dp_compliance_pct"],
-            stats["proj_ad_score"],
-            stats["proj_ad_compliance_pct"],
-            stats["proj_dp_score"],
-            stats["proj_dp_compliance_pct"],
-        ])
+        writer.writerow(
+            [
+                epoch,
+                space,
+                stats["cv"],
+                stats["ad_score"],
+                stats["ad_compliance_pct"],
+                stats["dp_score"],
+                stats["dp_compliance_pct"],
+                stats["proj_ad_score"],
+                stats["proj_ad_compliance_pct"],
+                stats["proj_dp_score"],
+                stats["proj_dp_compliance_pct"],
+            ]
+        )
 
 
 @torch.no_grad()

@@ -2,3 +2,6 @@
 .venv
 *.pyc
 *.tar.gz
+.venv
+data/
+__pycache__/
