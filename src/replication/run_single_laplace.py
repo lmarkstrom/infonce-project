@@ -166,6 +166,10 @@ def evaluate(enc):
 def main():
     """Train the encoder and print its Gaussianity diagnostics."""
     print(
+        f"[device check] torch.cuda.is_available()={torch.cuda.is_available()}; "
+        "this script runs on CPU (no tensors are moved to the GPU)"
+    )
+    print(
         f"Training linear InfoNCE encoder: d_data={D_DATA} -> d={D_EMBED}, "
         f"batch_size={BATCH_SIZE}, epochs={EPOCHS}"
     )

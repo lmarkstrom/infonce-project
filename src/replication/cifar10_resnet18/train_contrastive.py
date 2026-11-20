@@ -248,6 +248,10 @@ def main():
         f"device={device}  subset_size={SUBSET_SIZE}  epochs={EPOCHS}  "
         f"batch_size={BATCH_SIZE}  per_epoch_diagnostics={RUN_PER_EPOCH_DIAGNOSTICS}"
     )
+    if device == "cuda":
+        print(f"[device check] running on CUDA: {torch.cuda.get_device_name(0)}")
+    else:
+        print("[device check] WARNING: CUDA not available, running on CPU")
     model, projector, device, eval_loader = train()
     torch.save(
         {"model": model.state_dict(), "projector": projector.state_dict()},
