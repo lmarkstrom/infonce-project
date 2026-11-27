@@ -1,221 +1,61 @@
-## Agent Isolation & Jail Configuration
+# PyTorch Reproduction: *InfoNCE Induces Gaussian Distribution* (ICLR 2026)
 
-**Model:** Cloude Sonnet4.5
+Complete, self-contained PyTorch implementation of all core experiments from `11492_InfoNCE_Induces_Gaussian-2.pdf` (Betser, Gofer, Levi, & Gilboa, ICLR 2026), derived strictly from the paper text.
 
-To satisfy the course requirement of reproducing the machine learning paper **solely from the text provided** and preventing the LLM from accessing external code or repositories, the following strict isolation measures were enforced in Google Antigravity:
+## Directory Structure
 
-- **Technical Network Jail:**
-  - Configured a global wildcard deny rule (`*`) for `read_url` permissions to block all external web browsing and URL scraping.
-  - Restricted terminal and command execution to manual review to prevent unauthorized CLI downloads (`curl`, `wget`, `git clone`).
-- **File System Scope Isolation:**
-  - Removed workspace and file access permissions to any reference implementations or existing codebases outside the isolated assignment directory.
-
-## System prompt
-
-In the ai-replication folder, do this:
-
-Read the assignment and rules in our GEMINI.md file. Following those constraints strictly, write a complete PyTorch implementation of all main experiments for the research paper in the ai-replication folder using only the pdf paper.
-
----
-
-## Reproduction Guide: Step-by-Step
-
-### 1. Environment & Setup
-
-From the root of the project or within this directory:
-
-```bash
-cd /Users/linus/Desktop/school/infonce-project/src/infonce_project/ai-replication
-# Use the workspace venv python:
-VENV_PY="../../../.venv/bin/python"
+```text
+ai_replication-2/
+├── reproduction_plan.md            # Detailed mapping of paper sections, tables, and figures
+├── run_all.py                      # Unified CLI orchestrator
+├── common/
+│   ├── losses.py                   # InfoNCE (Eq. 2), SimCLR NT-Xent, Population Eq. (4) diagnostics
+│   ├── metrics.py                  # CV (Eq. 20), AD (< 0.752), DP (p > 0.05), ZCA whitening, pushforward likelihoods
+│   ├── models.py                   # LinearEncoder, TwoLayerMLPEncoder, matched ResNet-18 (SimCLR & Supervised)
+│   ├── datasets.py                 # Synthetic (Laplace, GMM, Sparse Binary), CIFAR-10, MS-COCO, ImageNet-R
+│   └── utils.py                    # Seeding, device selection, JSON I/O
+├── experiments/
+│   ├── run_synthetic_laplace.py    # Laplace sweep (d in {32..512}, N in {8..128}) & Pushforward (A in {0.2, 0.5, 0.8})
+│   ├── run_synthetic_gmm_binary.py # 25-component GMM & Discrete Sparse Binary (E0..E100 every 10 epochs)
+│   ├── run_cifar10_mlp.py          # CIFAR-10 2-layer ReLU MLP InfoNCE dynamics (Fig. 4)
+│   ├── run_cifar10_resnet18.py     # CIFAR-10 ResNet-18 Contrastive (SimCLR) vs. Supervised (CE) (Table 1)
+│   └── run_pretrained_eval.py      # ResNet-34, DenseNet, DINO, CLIP (Image/Text) on MS-COCO & ImageNet-R (Table 2, Figs. 6/9/10)
+└── plotting/
+    └── generate_figures.py         # Generates Figs. 2, 3, 4, 6, 7, 8, 9, 10, 11 & Tables 1-2 Markdown report
 ```
 
-### 2. Execution Options
+## Running the Experiments
 
-#### Option A: Run All Experiments
+All scripts default to `--device cuda` (pass `--device cuda:0` to select a specific GPU, or `--device cpu` / `--device auto` for CPU fallback).
 
-To run all experiments sequentially (Synthetic, CIFAR-10 MLP, CIFAR-10 ResNet):
-
-```bash
-# Fast smoke-test (few epochs, smaller batch/dim grids):
-$VENV_PY run_all.py --quick
-
-# Full paper-fidelity run:
-$VENV_PY run_all.py
-```
-
-#### Option B: Run Experiments Individually
-
-1. **Synthetic Experiments (Laplace, GMM, Binary)**
-   - Reproduces: **Figure 2**, **Figure 3**, and **Table 1 (Synthetic columns)**
-
-   ```bash
-   $VENV_PY train_synthetic.py            # Full run (150 epochs)
-   $VENV_PY train_synthetic.py --quick    # Quick run (30 epochs)
-   ```
-
-2. **CIFAR-10 Training Dynamics (2-Layer MLP)**
-   - Reproduces: **Figure 4 (Norm concentration, AD statistic, DP % over epochs)**
-
-   ```bash
-   $VENV_PY train_cifar_mlp.py --epochs 100
-   $VENV_PY train_cifar_mlp.py --quick
-   ```
-
-3. **CIFAR-10 ResNet-18 (Contrastive vs. Supervised)**
-   - Reproduces: **Table 1 (ResNet-18 Supervised vs. Contrastive columns)**
-
-   ```bash
-   $VENV_PY train_cifar_resnet.py --epochs 100
-   $VENV_PY train_cifar_resnet.py --quick
-   ```
-
-4. **Generate Consolidated Report**
-   ```bash
-   $VENV_PY evaluate.py
-   ```
-
----
-
-## How to Retrieve Metrics & Compare with Paper
-
-All metrics evaluate unnormalized representations $z = f(x) \in \mathbb{R}^d$ on held-out test data.
-
-### 1. The Core Metrics (Defined in `utils.py`)
-
-- **Norm Concentration (CV - Eq. 20):**
-  $$\text{CV} = \frac{\text{std}(\{\|z_i\|\}_{i=1}^N)}{\text{mean}(\{\|z_i\|\}_{i=1}^N)}$$
-  Lower CV indicates stronger thin-shell concentration on the hypersphere.
-- **Anderson-Darling (AD) Test:**
-  Evaluated per-coordinate. Critical value at $\alpha=0.05$ is $0.752$. Coordinates with statistic $< 0.752$ pass the normality hypothesis. Reported as **AD Avg.** and **AD Norm. Feat. (%)**.
-- **D'Agostino-Pearson (DP) Test:**
-  Evaluated per-coordinate. Coordinates with $p > 0.05$ fail to reject normality. Reported as **DP Avg.** and **DP Norm. Feat. (%)**.
-- **Alignment:** Mean cosine similarity of positive pairs $\mathbb{E}_{(u,v) \sim \pi}[u \cdot v]$.
-- **Uniformity:** Mean cosine similarity of negative pairs $\mathbb{E}_{i \neq j}[u_i \cdot u_j]$.
-
-### 2. Output Artifacts in `results/`
-
-Generated files map directly to figures and tables in the paper:
-
-| Generated Output                        | Paper Counterpart         | Description                                             |
-| :-------------------------------------- | :------------------------ | :------------------------------------------------------ |
-| `results/synthetic_table1.txt`          | **Table 1** (Columns 1–5) | Laplace, GMM, and Binary (E0, E50, E100) diagnostics    |
-| `results/cifar10_resnet_table1.txt`     | **Table 1** (Columns 6–7) | ResNet-18 Supervised vs. Contrastive diagnostics        |
-| `results/fig2_alignment_uniformity.png` | **Figure 2**              | Alignment and uniformity vs. batch size & dimension     |
-| `results/fig3_norm_stats.png`           | **Figure 3**              | CV and AD stats vs. batch size curves across dimensions |
-| `results/fig4_cifar10_mlp_dynamics.png` | **Figure 4**              | Evolution of CV, AD, and DP % over training epochs      |
-| `results/full_report.txt`               | Consolidated summary      | Side-by-side metric dump across all completed runs      |
-
-### 3. Paper Reference Baselines (Table 1 Benchmark)
-
-| Setting                              |  CV  | AD Avg (<0.752) | AD Norm % | DP Avg (>0.05) | DP Norm % | Gaussian? |
-| :----------------------------------- | :--: | :-------------: | :-------: | :------------: | :-------: | :-------: |
-| **Laplace (Linear)**                 | 0.08 |      0.38       |   100%    |      0.49      |   100%    |   **✓**   |
-| **GMM (Linear)**                     | 0.08 |      0.39       |   100%    |      0.46      |   100%    |   **✓**   |
-| **Binary E0**                        | 0.36 |      1.64       |    30%    |      0.02      |    15%    |   **✗**   |
-| **Binary E50**                       | 0.12 |      0.41       |    93%    |      0.44      |    89%    |   **✓**   |
-| **Binary E100**                      | 0.09 |      0.42       |    97%    |      0.46      |    98%    |   **✓**   |
-| **CIFAR-10 Supervised (ResNet-18)**  | 0.50 |      3.30       |   6.2%    |     0.041      |   3.9%    |   **✗**   |
-| **CIFAR-10 Contrastive (ResNet-18)** | 0.09 |      0.43       |   96.1%   |     0.390      |   94.5%   |   **✓**   |
-
----
-
-## Reproduction Guide: Step-by-Step
-
-### 1. Environment & Setup
-
-From the root of the project or within this directory:
+Run individual experiments with your PyTorch + CUDA environment:
 
 ```bash
-cd /Users/linus/Desktop/school/infonce-project/src/infonce_project/ai-replication
-# Use the workspace venv python:
-VENV_PY="../../../.venv/bin/python"
+# 1. Synthetic Laplace sweep + Encoder Pushforward (Figs. 2, 3, 7, 8, 11 & Table 1 Laplace)
+python experiments/run_synthetic_laplace.py
+
+# 2. Synthetic GMM & Sparse Binary (Table 1 GMM & Binary E0/E50/E100)
+python experiments/run_synthetic_gmm_binary.py
+
+# 3. CIFAR-10 Two-Layer MLP Training Dynamics (Fig. 4)
+python experiments/run_cifar10_mlp.py
+
+# 4. CIFAR-10 ResNet-18 Contrastive (SimCLR) vs. Supervised (Cross-Entropy) (Table 1)
+python experiments/run_cifar10_resnet18.py
+
+# 5. Pretrained Model Diagnostics & Whitening (Table 2, Figs. 6, 9, 10)
+python experiments/run_pretrained_eval.py \
+    --coco-images-dir /path/to/coco/val2017 \
+    --coco-captions-json /path/to/coco/annotations/captions_val2017.json \
+    --imagenet-r-dir /path/to/imagenet-r
+
+# 6. Generate all figures and Tables 1 & 2 Markdown summary
+python plotting/generate_figures.py
 ```
 
-### 2. Execution Options
-
-#### Option A: Run All Experiments
-
-To run all experiments sequentially (Synthetic, CIFAR-10 MLP, CIFAR-10 ResNet):
+Or run the orchestrated pipeline:
 
 ```bash
-# Fast smoke-test (few epochs, smaller batch/dim grids):
-$VENV_PY run_all.py --quick
-
-# Full paper-fidelity run:
-$VENV_PY run_all.py
+python run_all.py --stages synthetic_laplace synthetic_gmm_binary cifar10_mlp cifar10_resnet18 plot
 ```
 
-#### Option B: Run Experiments Individually
-
-1. **Synthetic Experiments (Laplace, GMM, Binary)**
-   - Reproduces: **Figure 2**, **Figure 3**, and **Table 1 (Synthetic columns)**
-
-   ```bash
-   $VENV_PY train_synthetic.py            # Full run (150 epochs)
-   $VENV_PY train_synthetic.py --quick    # Quick run (30 epochs)
-   ```
-
-2. **CIFAR-10 Training Dynamics (2-Layer MLP)**
-   - Reproduces: **Figure 4 (Norm concentration, AD statistic, DP % over epochs)**
-
-   ```bash
-   $VENV_PY train_cifar_mlp.py --epochs 100
-   $VENV_PY train_cifar_mlp.py --quick
-   ```
-
-3. **CIFAR-10 ResNet-18 (Contrastive vs. Supervised)**
-   - Reproduces: **Table 1 (ResNet-18 Supervised vs. Contrastive columns)**
-
-   ```bash
-   $VENV_PY train_cifar_resnet.py --epochs 100
-   $VENV_PY train_cifar_resnet.py --quick
-   ```
-
-4. **Generate Consolidated Report**
-   ```bash
-   $VENV_PY evaluate.py
-   ```
-
----
-
-## How to Retrieve Metrics & Compare with Paper
-
-All metrics evaluate unnormalized representations $z = f(x) \in \mathbb{R}^d$ on held-out test data.
-
-### 1. The Core Metrics (Defined in `utils.py`)
-
-- **Norm Concentration (CV - Eq. 20):**
-  $$\text{CV} = \frac{\text{std}(\{\|z_i\|\}_{i=1}^N)}{\text{mean}(\{\|z_i\|\}_{i=1}^N)}$$
-  Lower CV indicates stronger thin-shell concentration on the hypersphere.
-- **Anderson-Darling (AD) Test:**
-  Evaluated per-coordinate. Critical value at $\alpha=0.05$ is $0.752$. Coordinates with statistic $< 0.752$ pass the normality hypothesis. Reported as **AD Avg.** and **AD Norm. Feat. (%)**.
-- **D'Agostino-Pearson (DP) Test:**
-  Evaluated per-coordinate. Coordinates with $p > 0.05$ fail to reject normality. Reported as **DP Avg.** and **DP Norm. Feat. (%)**.
-- **Alignment:** Mean cosine similarity of positive pairs $\mathbb{E}_{(u,v) \sim \pi}[u \cdot v]$.
-- **Uniformity:** Mean cosine similarity of negative pairs $\mathbb{E}_{i \neq j}[u_i \cdot u_j]$.
-
-### 2. Output Artifacts in `results/`
-
-Generated files map directly to figures and tables in the paper:
-
-| Generated Output                        | Paper Counterpart         | Description                                             |
-| :-------------------------------------- | :------------------------ | :------------------------------------------------------ |
-| `results/synthetic_table1.txt`          | **Table 1** (Columns 1–5) | Laplace, GMM, and Binary (E0, E50, E100) diagnostics    |
-| `results/cifar10_resnet_table1.txt`     | **Table 1** (Columns 6–7) | ResNet-18 Supervised vs. Contrastive diagnostics        |
-| `results/fig2_alignment_uniformity.png` | **Figure 2**              | Alignment and uniformity vs. batch size & dimension     |
-| `results/fig3_norm_stats.png`           | **Figure 3**              | CV and AD stats vs. batch size curves across dimensions |
-| `results/fig4_cifar10_mlp_dynamics.png` | **Figure 4**              | Evolution of CV, AD, and DP % over training epochs      |
-| `results/full_report.txt`               | Consolidated summary      | Side-by-side metric dump across all completed runs      |
-
-### 3. Paper Reference Baselines (Table 1 Benchmark)
-
-| Setting                              |  CV  | AD Avg (<0.752) | AD Norm % | DP Avg (>0.05) | DP Norm % | Gaussian? |
-| :----------------------------------- | :--: | :-------------: | :-------: | :------------: | :-------: | :-------: |
-| **Laplace (Linear)**                 | 0.08 |      0.38       |   100%    |      0.49      |   100%    |   **✓**   |
-| **GMM (Linear)**                     | 0.08 |      0.39       |   100%    |      0.46      |   100%    |   **✓**   |
-| **Binary E0**                        | 0.36 |      1.64       |    30%    |      0.02      |    15%    |   **✗**   |
-| **Binary E50**                       | 0.12 |      0.41       |    93%    |      0.44      |    89%    |   **✓**   |
-| **Binary E100**                      | 0.09 |      0.42       |    97%    |      0.46      |    98%    |   **✓**   |
-| **CIFAR-10 Supervised (ResNet-18)**  | 0.50 |      3.30       |   6.2%    |     0.041      |   3.9%    |   **✗**   |
-| **CIFAR-10 Contrastive (ResNet-18)** | 0.09 |      0.43       |   96.1%   |     0.390      |   94.5%   |   **✓**   |

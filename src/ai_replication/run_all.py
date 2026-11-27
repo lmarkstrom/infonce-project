@@ -1,70 +1,118 @@
-"""
-run_all.py — Master runner for all paper experiments.
+"""Master CLI orchestrator for reproducing all experiments in 'InfoNCE Induces Gaussian Distribution'.
 
-Usage:
-  python run_all.py --quick     # Fast smoke-test (small epochs)
-  python run_all.py             # Full reproduction (matches paper)
-
-Runs:
-  1. Synthetic experiments (Laplace, GMM, Binary) → Table 1 + Figs 2, 3
-  2. CIFAR-10 MLP dynamics → Figure 4
-  3. CIFAR-10 ResNet-18 Contrastive vs. Supervised → Table 1
-  4. Final report (evaluate.py)
+Runs any combination of:
+- synthetic_laplace  (Figs. 2, 3, 7, 8, 11 & Table 1 Laplace)
+- synthetic_gmm_binary (Table 1 GMM & Binary E0/E50/E100)
+- cifar10_mlp        (Fig. 4)
+- cifar10_resnet18   (Table 1 CIFAR-10 ResNet-18 Supervised vs. Contrastive)
+- pretrained         (Table 2, Figs. 6, 9, 10)
+- plot               (Generates all figures & Tables 1-2 Markdown report)
 """
 
-import sys
-import os
+from __future__ import annotations
+
 import argparse
-import subprocess
+import sys
+from pathlib import Path
+
+ROOT_DIR = Path(__file__).resolve().parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from experiments.run_cifar10_mlp import run_cifar10_mlp_experiment
+from experiments.run_cifar10_resnet18 import run_cifar10_resnet18_experiment
+from experiments.run_pretrained_eval import run_pretrained_diagnostics
+from experiments.run_synthetic_gmm_binary import run_additional_synthetic_experiments
+from experiments.run_synthetic_laplace import run_laplace_experiments
+from plotting.generate_figures import generate_all_outputs
+
+ALL_STAGES = [
+    "synthetic_laplace",
+    "synthetic_gmm_binary",
+    "cifar10_mlp",
+    "cifar10_resnet18",
+    "pretrained",
+    "plot",
+]
 
 
-def run(cmd: list[str]):
-    """Run a command and exit on failure."""
-    print('\n' + '='*70)
-    print('RUNNING:', ' '.join(cmd))
-    print('='*70)
-    result = subprocess.run(cmd, check=False)
-    if result.returncode != 0:
-        print(f'\n[WARNING] Command exited with code {result.returncode}')
-
-
-def main():
-    parser = argparse.ArgumentParser(description='Run all paper experiments')
-    parser.add_argument(
-        '--quick', action='store_true',
-        help='Run quick smoke-test with small epoch counts (not full reproduction)'
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Run full PyTorch reproduction of 'InfoNCE Induces Gaussian Distribution'."
     )
     parser.add_argument(
-        '--skip-cifar', action='store_true',
-        help='Skip CIFAR-10 experiments (useful if torchvision/data not available)'
+        "--stages",
+        type=str,
+        nargs="+",
+        default=["synthetic_laplace", "synthetic_gmm_binary", "cifar10_mlp", "cifar10_resnet18", "plot"],
+        choices=ALL_STAGES,
+        help="Experiment stages to execute in order.",
     )
-    args = parser.parse_args()
-
-    python = sys.executable
-    here = os.path.dirname(os.path.abspath(__file__))
-    os.chdir(here)
-
-    quick_flag = ['--quick'] if args.quick else []
-
-    # 1. Synthetic experiments
-    run([python, 'train_synthetic.py'] + quick_flag)
-
-    # 2. CIFAR-10 MLP dynamics
-    if not args.skip_cifar:
-        run([python, 'train_cifar_mlp.py'] + quick_flag)
-
-    # 3. CIFAR-10 ResNet-18 contrastive vs supervised
-    if not args.skip_cifar:
-        run([python, 'train_cifar_resnet.py'] + quick_flag)
-
-    # 4. Final consolidated report
-    run([python, 'evaluate.py'])
-
-    print('\n' + '='*70)
-    print('ALL EXPERIMENTS COMPLETED')
-    print('Results are in:', os.path.join(here, 'results'))
-    print('='*70)
+    parser.add_argument("--results-dir", type=str, default=str(ROOT_DIR / "results"))
+    parser.add_argument("--data-dir", type=str, default=str(ROOT_DIR / "data" / "cifar10"))
+    parser.add_argument("--coco-images-dir", type=str, default=None)
+    parser.add_argument("--coco-captions-json", type=str, default=None)
+    parser.add_argument("--imagenet-r-dir", type=str, default=None)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--device", type=str, default="cuda")
+    parser.add_argument("--no-pretrained-resnet18", action="store_true")
+    parser.add_argument("--cifar-stem", action="store_true")
+    return parser.parse_args()
 
 
-if __name__ == '__main__':
+def main() -> None:
+    args = parse_args()
+    results_root = Path(args.results_dir)
+
+    if "synthetic_laplace" in args.stages:
+        run_laplace_experiments(
+            output_dir=results_root / "synthetic_laplace",
+            seed=args.seed,
+            device_str=args.device,
+        )
+
+    if "synthetic_gmm_binary" in args.stages:
+        run_additional_synthetic_experiments(
+            output_dir=results_root / "synthetic_gmm_binary",
+            seed=args.seed,
+            device_str=args.device,
+        )
+
+    if "cifar10_mlp" in args.stages:
+        run_cifar10_mlp_experiment(
+            data_dir=args.data_dir,
+            output_dir=results_root / "cifar10_mlp",
+            seed=args.seed,
+            device_str=args.device,
+        )
+
+    if "cifar10_resnet18" in args.stages:
+        run_cifar10_resnet18_experiment(
+            data_dir=args.data_dir,
+            output_dir=results_root / "cifar10_resnet18",
+            pretrained=not args.no_pretrained_resnet18,
+            cifar_stem=args.cifar_stem,
+            seed=args.seed,
+            device_str=args.device,
+        )
+
+    if "pretrained" in args.stages:
+        run_pretrained_diagnostics(
+            output_dir=results_root / "pretrained",
+            coco_images_dir=args.coco_images_dir,
+            coco_captions_json=args.coco_captions_json,
+            imagenet_r_dir=args.imagenet_r_dir,
+            seed=args.seed,
+            device_str=args.device,
+        )
+
+    if "plot" in args.stages:
+        generate_all_outputs(
+            results_root=results_root,
+            figures_dir=results_root / "figures",
+        )
+
+
+if __name__ == "__main__":
     main()
+

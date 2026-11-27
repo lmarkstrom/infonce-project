@@ -1,134 +1,116 @@
 # Reproduction Plan: "InfoNCE Induces Gaussian Distribution" (ICLR 2026)
 
-## Paper Summary
-
-The paper proves that InfoNCE-trained representations asymptotically follow a Gaussian distribution. It supports the theory empirically via two routes:
-1. **Empirical idealization route**: alignment plateau + thin-shell concentration → uniform on sphere → Gaussian projections
-2. **Regularized route**: vanishing KL regularizer → same Gaussian structure
+This plan maps every core experiment, dataset, architecture, objective, hyperparameter, diagnostic metric, table, and figure described in `11492_InfoNCE_Induces_Gaussian-2.pdf` (Betser, Gofer, Levi, & Gilboa, ICLR 2026) into a complete, self-contained PyTorch implementation.
 
 ---
 
-## Experiments to Reproduce
+## 1. Core Formulation & Shared Infrastructure
 
-### Experiment 1 — Synthetic Laplace Data (Linear Encoder)
-**Goal:** Show that InfoNCE on Laplace(0,1) inputs with a linear encoder produces Gaussian representations.
+### 1.1 Objectives (`common/losses.py`)
+1. **Empirical InfoNCE Loss (Section 3, Eq. 2)**:
+   - Given $\ell_2$-normalized representations $u_i = \hat{f}(x_i)$, $v_i = \hat{f}(y_i) \in \mathbb{S}^{d-1}$ (with deterministic fallback $c_0 = e_1 \in \mathbb{S}^{d-1}$ when $\|f(x)\|_2 = 0$) and fixed temperature $\tau > 0$:
+     $$\mathcal{L}_{\text{InfoNCE}} = -\frac{1}{N}\sum_{i=1}^N \log \frac{\exp(\frac{1}{\tau}\langle u_i, v_i \rangle)}{\sum_{j=1}^N \exp(\frac{1}{\tau}\langle u_i, v_j \rangle)}.$$
+   - Also supports symmetric InfoNCE and SimCLR NT-Xent ($2N$ batch with self-masking) for the SimCLR ResNet-18 protocol.
+2. **Supervised Baseline Loss**: Standard `nn.CrossEntropyLoss` for CIFAR-10 ResNet-18 comparison.
+3. **Population Alignment & Uniformity Diagnostics (Section 3, Eq. 4)**:
+   - Alignment: $\mathbb{E}_{(u,v)\sim\pi}[u \cdot v]$.
+   - Uniformity potential: $\Phi(\mu) = \mathbb{E}_{u\sim\mu}\log \mathbb{E}_{v\sim\mu}\exp(\frac{1}{\tau} u \cdot v)$.
 
-- **Data:** 20k train / 5k test, 1024-dimensional i.i.d. Laplace(0,1) vectors
-- **Augmentation:** Two correlated views via `x1 = A*x + sqrt(1-A²)*ε1`, `x2 = A*x + sqrt(1-A²)*ε2`, plus light jitter (additive Gaussian noise std=0.2, feature dropout p=0.1, random multiplicative scaling exp(N(0,0.1²))). A=0.6 default.
-- **Encoder:** Linear (1024 → d), representation dims d ∈ {32, 64, 128, 256}
-- **Loss:** InfoNCE with temperature τ=0.1
-- **Optimizer:** Adam, lr=1e-3, 150 epochs
-- **Batch sizes:** N ∈ {8, 16, 32, 48, 64, 96, 128}
-- **Metrics:** CV of norms, Anderson-Darling (AD) statistic, D'Agostino-Pearson (DP) p-value, alignment (cosine of positive pairs), uniformity (cosine of negative pairs)
-- **Output:** Figures 2 (alignment/uniformity vs batch/dim), Figure 3 (norm stats), Table 1
-
-### Experiment 2 — Synthetic Gaussian Mixture Data (Linear Encoder)
-**Goal:** Show Gaussianity emerges regardless of input distribution.
-
-- **Data:** 10k samples from 25-component isotropic Gaussian mixture, 1024-dimensional, random fixed component means
-- **Augmentation:** Positive pairs = two independent samples from the same mixture component
-- **Encoder:** Linear (1024 → 256)
-- **Loss:** InfoNCE, τ=0.1
-- **Optimizer:** Adam, lr=1e-3, 100 epochs
-- **Metrics:** CV, AD, DP
-- **Output:** Table 1
-
-### Experiment 3 — Synthetic Binary Data (Linear Encoder)
-**Goal:** Show Gaussianity emerges from discrete binary inputs.
-
-- **Data:** 10k sparse binary vectors of dimension 1024
-- **Augmentation:** Positive pairs by independently flipping 0.1% of zero entries to ones
-- **Encoder:** Linear (1024 → 256)
-- **Loss:** InfoNCE, τ=0.1
-- **Optimizer:** Adam, lr=1e-3, 100 epochs
-- **Evaluation:** Every 10 epochs (Table 1 shows Binary E0/E50/E100)
-- **Metrics:** CV, AD, DP
-- **Output:** Table 1
-
-### Experiment 4 — CIFAR-10, Two-Layer MLP Contrastive (Training Dynamics)
-**Goal:** Show Gaussianity increases over training epochs.
-
-- **Data:** CIFAR-10 (50k train, 10k test)
-- **Augmentations:** SimCLR-style: random resized crop to 32×32 (scale 0.2–1.0), random horizontal flip, color jitter (0.8, 0.8, 0.8, 0.2), random grayscale p=0.2
-- **Encoder:** Two-layer MLP with single ReLU nonlinearity, input 3072 (flattened 32×32×3), hidden and output dimensions to 256
-- **Loss:** InfoNCE, τ=0.1
-- **Optimizer:** Adam, lr=1e-3, weight_decay=1e-4, batch_size=256, 100 epochs
-- **Metrics:** CV, AD statistic, DP fraction over epochs
-- **Output:** Figure 4 (training dynamics)
-
-### Experiment 5 — CIFAR-10, ResNet-18, Contrastive vs. Supervised
-**Goal:** Show that Gaussianity is due to the InfoNCE objective, not architecture/data.
-
-- **Data:** CIFAR-10 (50k train, 10k test)
-- **Augmentations:** SimCLR-style (same as above) for contrastive; standard for supervised
-- **Encoder:** ResNet-18 (following SimCLR protocol)
-- **Contrastive:** InfoNCE, τ=0.1, Adam, lr=1e-3, weight_decay=1e-4, batch_size=256, 100 epochs
-- **Supervised:** Cross-entropy, same optimizer and batch size
-- **Metrics:** CV, AD (avg + fraction), DP (avg + fraction)
-- **Output:** Table 1
+### 1.2 Diagnostic Metrics (`common/metrics.py`)
+All experiments evaluate **both unnormalized** ($z = f(x)$) and **normalized** ($u = \hat{f}(x)$) test-set representations:
+1. **Norm Concentration (Thin-Shell Metric, Section 5, Eq. 20)**:
+   - Coefficient of Variation: $\text{CV} = \text{std}(\{\|z_i\|_2\}_{i=1}^N) / \text{mean}(\{\|z_i\|_2\}_{i=1}^N)$, plus mean and std of $\|z_i\|_2$.
+2. **Coordinate-Wise Normality Tests (Section 5)**:
+   - **Anderson-Darling (AD)** test (`scipy.stats.anderson(..., dist="norm")`):
+     - `AD Avg.`: mean AD statistic across all $d$ coordinates.
+     - `AD Norm. Feat. (%)`: percentage of coordinates with $\text{AD} < 0.752$.
+   - **D'Agostino-Pearson (DP)** test (`scipy.stats.normaltest`):
+     - `DP Avg.`: mean $p$-value across all $d$ coordinates.
+     - `DP Norm. Feat. (%)`: percentage of coordinates with $p > 0.05$.
+3. **Cosine Similarity Distributions (Alignment vs. Uniformity)**:
+   - Positive-pair cosine similarities $\langle u_i, v_i \rangle$ and negative-pair cosine similarities $\langle u_i, v_j \rangle$ ($i \neq j$).
+4. **Post-Hoc ZCA Whitening (Appendix E.2, Figs. 9–10)**:
+   - Center representations, estimate sample covariance $\Sigma$, apply $Z_{\text{white}} = (Z - \bar{Z}) \Sigma^{-1/2}$, and compare negative cosine similarity distributions before and after whitening.
+5. **Encoder Pushforward Log-Likelihood Correlation (Appendix E.2, Fig. 11)**:
+   - Source exact Laplace(0, 1) log-likelihood $\log p_{\text{data}}(x) = \sum_{j=1}^{d_{\text{data}}}(-\log 2 - |x_j|)$ vs. fitted multivariate Gaussian log-likelihood $\log \mathcal{N}(z; \hat{\mu}, \hat{\Sigma})$ on test representations, quantified by Pearson $r$.
 
 ---
 
-## Metrics Implementation
+## 2. Main Experiments Mapping
 
-### Coefficient of Variation (CV)
-```
-CV = std({||z_i||}) / mean({||z_i||})
-```
-A small CV (≈0.08-0.09 for contrastive) indicates thin-shell concentration.
+### Experiment 1: Synthetic Laplace Data & Pushforward Analysis (`experiments/run_synthetic_laplace.py`)
+- **Paper Targets**: Figure 2, Figure 3, Figure 7, Figure 8, Figure 11, Table 1 (`Synthetic Linear - Laplace`).
+- **Dataset**:
+  - i.i.d. $\text{Laplace}(0, 1)$ vectors with $d_{\text{data}} = 1024$.
+  - Split: `20,000` training samples, `5,000` test samples (Appendix E.1).
+- **Augmentations (Eq. 53 & Appendix E.1)**:
+  - Correlated Gaussian mixing: $x_1 = A x + \sqrt{1 - A^2}\varepsilon_1$, $x_2 = A x + \sqrt{1 - A^2}\varepsilon_2$, $\varepsilon_1, \varepsilon_2 \sim \mathcal{N}(0, I)$, with default $A = 0.6$.
+  - Independent jitter per view: additive Gaussian noise ($\sigma = 0.2$), feature dropout ($p = 0.1$), random multiplicative scaling by $\exp(\mathcal{N}(0, 0.1^2))$.
+- **Model**: Linear encoder `nn.Linear(1024, d)`.
+- **Hyperparameters**:
+  - Sweep dimensions $d \in \{32, 64, 128, 256, 512\}$ (covering Appendix E.1 and Figs. 2, 3, 7, 8).
+  - Sweep batch sizes $N \in \{8, 16, 32, 48, 64, 96, 128\}$.
+  - Temperature $\tau = 0.1$ (configurable to $0.2$).
+  - Optimizer: Adam, $\text{lr} = 10^{-3}$, `150` epochs (configurable 50–250).
+- **Pushforward Sub-Experiment (Fig. 11)**:
+  - Train linear encoders across augmentation strengths $A \in \{0.2, 0.5, 0.8\}$ and compute Pearson correlation between $\log p_{\text{Laplace}}(x)$ and $\log p_{\mathcal{N}(\hat{\mu}, \hat{\Sigma})}(z)$ on test samples.
 
-### Anderson-Darling (AD) Test
-- Per coordinate, test statistic < 0.752 → accept normality
-- Report average statistic and fraction of coordinates passing
+### Experiment 2: Additional Synthetic Distributions — GMM & Discrete Sparse Binary (`experiments/run_synthetic_gmm_binary.py`)
+- **Paper Targets**: Table 1 (`Synthetic Linear - GMM`, `Synthetic Linear - Binary E0/E50/E100`).
+- **2a. Gaussian Mixture Model (GMM)**:
+  - `10,000` training samples (plus held-out test set from the same fixed components) in $\mathbb{R}^{1024}$ from 25 equally weighted Gaussian components with independently sampled fixed means and shared isotropic covariance.
+  - Augmentation: positive pairs drawn independently from the same underlying mixture component.
+  - Model & Optimization: `nn.Linear(1024, 256)`, InfoNCE ($\tau = 0.1$), Adam ($\text{lr} = 10^{-3}$), `100` epochs.
+- **2b. Discrete Sparse Binary**:
+  - `10,000` training samples (plus held-out test set) of sparse binary vectors in $\{0, 1\}^{1024}$.
+  - Augmentation: positive pairs generated by independently flipping `0.1%` of zero entries to ones.
+  - Model & Optimization: `nn.Linear(1024, 256)`, InfoNCE ($\tau = 0.1$), Adam ($\text{lr} = 10^{-3}$), `100` epochs.
+  - Evaluation schedule: evaluate CV, AD, and DP diagnostics every `10` epochs (including E0, E50, E100).
 
-### D'Agostino-Pearson (DP) Test
-- Per coordinate, p-value > 0.05 → accept normality  
-- Report average p-value and fraction of coordinates passing
+### Experiment 3: CIFAR-10 Two-Layer MLP Training Dynamics (`experiments/run_cifar10_mlp.py`)
+- **Paper Targets**: Figure 4 (CV, AD statistic, and DP passing feature fraction over training epochs).
+- **Dataset**: CIFAR-10 (`50,000` train, `10,000` test).
+- **Augmentations (Appendix E.1)**: SimCLR pipeline — `RandomResizedCrop(32, scale=(0.2, 1.0))`, `RandomHorizontalFlip`, `ColorJitter(0.8, 0.8, 0.8, 0.2)` (p=0.8), `RandomGrayscale(p=0.2)`.
+- **Model**: Two-layer MLP with a single ReLU nonlinearity (`3072 -> hidden_dim -> ReLU -> repr_dim`, default `512 -> 256`).
+- **Optimization**: InfoNCE ($\tau = 0.1$), Adam, $\text{lr} = 10^{-3}$, weight decay $= 10^{-4}$, batch size $= 256$, `100` epochs.
+- **Evaluation**: Compute CV, AD, and DP metrics on the CIFAR-10 test set at epoch 0 and throughout training (every epoch or configured interval).
 
-### Alignment
-- Mean cosine similarity of positive pairs: `mean(u_i · v_i)`
+### Experiment 4: CIFAR-10 ResNet-18 Contrastive vs. Supervised (`experiments/run_cifar10_resnet18.py`)
+- **Paper Targets**: Table 1 (`CIFAR-10 ResNet-18 - Supervised` vs. `Contrastive`).
+- **Dataset**: CIFAR-10 (`50,000` train, `10,000` test), SimCLR augmentation pipeline for contrastive views.
+- **Architecture & Identical Initialization**:
+  - Shared ResNet-18 backbone (ImageNet-pretrained by default per Appendix E.1, with exact initial state dict cloned to both branches so initialization and capacity are strictly identical).
+  - **Contrastive branch (SimCLR)**: 512-dim ResNet-18 backbone + 2-layer MLP projection head (`512 -> 512 -> ReLU -> 128`), trained with InfoNCE / NT-Xent ($\tau = 0.1$).
+  - **Supervised branch**: identical 512-dim ResNet-18 backbone + linear classifier (`512 -> 10`), trained with cross-entropy loss.
+- **Optimization**: Adam, $\text{lr} = 10^{-3}$, weight decay $= 10^{-4}$, batch size $= 256$, `100` epochs.
+- **Evaluation**:
+  - Extract 512-dim penultimate representations on CIFAR-10 test set (both unnormalized and normalized) and compute CV, AD Avg / Norm. Feat. %, DP Avg / Norm. Feat. %.
+  - Also report supervised test accuracy and contrastive linear-probe accuracy to verify representation quality.
 
-### Uniformity
-- Mean cosine similarity of negative pairs: `mean_{i≠j}(u_i · v_j)`
+### Experiment 5: Pretrained Foundation & Supervised Model Diagnostics (`experiments/run_pretrained_eval.py`)
+- **Paper Targets**: Table 2, Figure 6, Figure 9, Figure 10.
+- **Models**:
+  - Supervised (ImageNet-pretrained): `ResNet-34`, `DenseNet-121` (`torchvision.models`).
+  - Self-supervised: `DINO (ViT-B/32)` (with `timm`/`transformers`/`torch.hub` loader) and `CLIP (ViT-L/14)` image & text encoders (`open_clip`/`clip`/`transformers` loader).
+- **Datasets**:
+  - Full MS-COCO 2017 validation set (`5,000` images + captions).
+  - Full ImageNet-R benchmark (`Sketch` and `Painting` domains for CLIP Image).
+- **Diagnostics**:
+  - Unnormalized and normalized coordinate-wise AD & DP statistics (Table 2).
+  - Unnormalized representation norm histograms and CV (Figure 6).
+  - Raw vs. ZCA-whitened negative cosine similarity histograms for unnormalized (Figure 9) and normalized (Figure 10) embeddings of CLIP (Image), CLIP (Text), and DINO.
 
 ---
 
-## File Structure
+## 3. Visualization, Reporting & Orchestration
 
-```
-ai-replication/
-├── reproduction_plan.md          (this file)
-├── utils.py                      (metrics: CV, AD, DP, alignment, uniformity)
-├── infonce_loss.py               (InfoNCE loss implementation)
-├── models.py                     (LinearEncoder, MLP, ResNet-18 wrapper)
-├── augmentations.py              (synthetic augmentations, SimCLR augmentations)
-├── datasets.py                   (synthetic Laplace, GMM, Binary datasets)
-├── train_synthetic.py            (Experiments 1, 2, 3 — synthetic data)
-├── train_cifar_mlp.py            (Experiment 4 — CIFAR-10 MLP dynamics)
-├── train_cifar_resnet.py         (Experiment 5 — CIFAR-10 ResNet contrastive vs supervised)
-└── evaluate.py                   (Shared evaluation and plotting utilities)
-```
+- `plotting/generate_figures.py`: Generates high-resolution figures reproducing Figures 2, 3, 4, 6, 7, 8, 9, 10, and 11 from saved experiment JSON/NPZ outputs, plus formatted Markdown & LaTeX tables reproducing Tables 1 and 2.
+- `run_all.py`: Unified command-line entry point to execute individual experiments or the complete reproduction pipeline end-to-end.
 
 ---
 
-## Execution Checklist
+## 4. Verification Plan
+1. Unit-test and smoke-test all modules (losses, metrics, datasets, models, training loops, whitening, pushforward correlation, figure/table generation) using the project's virtual environment.
+2. Verify all synthetic experiments end-to-end and confirm expected qualitative and quantitative trends (thin-shell CV decay, AD < 0.752, DP p > 0.05, alignment saturation vs. uniformity improvement, binary E0 non-Gaussian -> E50/E100 Gaussian transition, pushforward Pearson correlation).
+3. Verify CIFAR-10 MLP & ResNet-18 (Contrastive vs. Supervised) pipelines and pretrained model evaluation scripts execute cleanly with real data loaders, no placeholders, and complete logging.
 
-- [x] InfoNCE loss implementation
-- [x] CV metric
-- [x] AD test metric
-- [x] DP test metric
-- [x] Alignment/uniformity metrics
-- [x] Synthetic Laplace data + augmentations
-- [x] Gaussian mixture data + augmentations
-- [x] Binary data + augmentations
-- [x] Linear encoder
-- [x] Two-layer MLP encoder
-- [x] ResNet-18 encoder
-- [x] SimCLR CIFAR-10 augmentations
-- [x] Synthetic data training loop (Exp 1, 2, 3) → Table 1
-- [x] CIFAR-10 MLP training with dynamics tracking → Figure 4
-- [x] CIFAR-10 ResNet-18 contrastive vs supervised → Table 1
-- [x] Plots: Figure 2 (alignment/uniformity vs batch/dim)
-- [x] Plots: Figure 3 (norm stats)
-- [x] Plots: Figure 4 (training dynamics)
-- [x] Table 1 reproduction
